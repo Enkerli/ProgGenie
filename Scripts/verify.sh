@@ -49,12 +49,15 @@ build_package() {
     PKG_BIN="$(swift build --package-path "$PACKAGE" --show-bin-path)"
 }
 
-# The package's modules and objects. UI is left out: these suites are headless,
-# and linking SwiftUI views into a command-line binary buys nothing.
+# The package's modules and objects. UI and Shell are left out: these suites are
+# headless, and linking SwiftUI views or an AU shell into a command-line binary
+# buys nothing. So are the package's own test targets, whose objects carry a
+# second `main` — which only shows up the day the package gains tests, and did.
 package_flags() {
     build_package || return 1
     echo "-I $PKG_BIN/Modules"
-    find "$PKG_BIN" -name "*.o" ! -path "*/UI.build/*" ! -path "*/Shell.build/*" | sort
+    find "$PKG_BIN" -name "*.o" ! -path "*/UI.build/*" ! -path "*/Shell.build/*" \
+        ! -path "*Tests.build/*" | sort
 }
 
 # Every extension source that does not need the AU shell. The state, the
