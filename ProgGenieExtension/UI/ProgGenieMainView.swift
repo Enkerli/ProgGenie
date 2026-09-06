@@ -37,16 +37,26 @@ struct ProgGenieMainView: View {
     @State private var selectedTransition: Int?
     @Environment(\.colorScheme) private var colorScheme
 
-    private var theme: MelGenTheme { colorScheme == .dark ? .dark : .light }
+    /// The chosen theme, or the host's when nothing has been chosen. An AUv3
+    /// lives inside somebody else's window and does not always inherit the
+    /// scheme its author intended.
+    private var theme: MelGenTheme { themePreference.theme(in: colorScheme) }
 
-    private var playParameter: ObservableAUParameter { parameterTree.global.playMelody }
+    @AppStorage("ProgGenie.theme") private var themeRaw = ThemePreference.system.rawValue
+    private var themePreference: ThemePreference {
+        ThemePreference(rawValue: themeRaw) ?? .system
+    }
+    private var themeBinding: Binding<ThemePreference> {
+        Binding(get: { themePreference }, set: { themeRaw = $0.rawValue })
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: MelGenMetrics.space3) {
+                transport
                 changes
                 mini
-                transport
+                generateRow
                 dials
                 judgement
             }
@@ -127,7 +137,14 @@ struct ProgGenieMainView: View {
 
     // MARK: - Transport and generation
 
-    private var transport: some View {
+    /// Generating, which is this plug-in's own action.
+    ///
+    /// The play button that used to sit beside it is gone: `TransportRow` at the
+    /// top of the screen has it, along with host sync and direction — two
+    /// controls this plug-in has always declared as parameters, which reached
+    /// the kernel and worked, and which nothing showed. A control that exists
+    /// and cannot be found is not much better than one that lies.
+    private var generateRow: some View {
         HStack(spacing: MelGenMetrics.space2) {
             PrimaryAction(title: "New changes",
                           subtitle: state.curation.isEmpty
@@ -138,23 +155,6 @@ struct ProgGenieMainView: View {
                           isEnabled: true,
                           theme: theme) { generate() }
 
-            Button {
-                playParameter.value = playParameter.boolValue ? 0 : 1
-            } label: {
-                Image(systemName: playParameter.boolValue ? "stop.fill" : "play.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.text)
-                    .frame(width: MelGenMetrics.controlHeight * 1.4,
-                           height: MelGenMetrics.controlHeight)
-                    .background(
-                        RoundedRectangle(cornerRadius: MelGenMetrics.radiusSmall)
-                            .fill(theme.raised))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MelGenMetrics.radiusSmall)
-                            .strokeBorder(theme.border, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(playParameter.boolValue ? "Stop" : "Play")
         }
     }
 
@@ -274,5 +274,35 @@ struct ProgGenieMainView: View {
 
     private func commit(reloadKernel: Bool = true) {
         audioUnit?.update(state: state, reloadKernel: reloadKernel)
+    }
+
+    // MARK: - Transport, theme and panic
+    //
+    // The shared row from `UI`, bound to the three parameters this plug-in has
+    // always declared. They reached the kernel and worked; nothing showed them,
+    // which the register called out as its own kind of gap — a control that
+    // exists and cannot be found is not much better than one that lies.
+
+    private var transportBindings: TransportParameters.Bindings {
+        TransportParameters.Bindings(in: parameterTree)
+    }
+
+    private var transport: some View {
+        VStack(alignment: .leading, spacing: MelGenMetrics.space2) {
+            TransportRow(isPlaying: transportBindings.play ?? .constant(false),
+                         followsHost: transportBindings.hostSync ?? .constant(false),
+                         direction: transportBindings.direction,
+                         theme: theme)
+            HStack(spacing: MelGenMetrics.space2) {
+                ThemeChip(preference: themeBinding, theme: theme)
+                Spacer(minLength: 0)
+                Button("Panic") { audioUnit?.panic() }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.warning)
+                    .frame(minHeight: MelGenMetrics.controlHeight)
+                    .accessibilityHint("Ends every note this plug-in is holding, "
+                                       + "and sends all-notes-off on every channel")
+            }
+        }
     }
 }
